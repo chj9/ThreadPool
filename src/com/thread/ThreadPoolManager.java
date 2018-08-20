@@ -1,7 +1,9 @@
 /**
  * 
  */
-package com.thread;
+package com.montnets.thread;
+
+
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.RejectedExecutionHandler;
@@ -11,20 +13,21 @@ import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 /**   
-* Copyright: Copyright (c) 2018 
+* Copyright: Copyright (c) 2018 Montnets
 * 
 * @ClassName: ThreadPoolManager.java
-* @Description: 线程池管理(线程统一调度管理)
+* @Description: 该类的功能描述
 *
 * @version: v1.0.0
 * @author: chenhj
-* @date: 2018年8月7日 上午10:05:54 
+* @date: 2018年8月20日 上午9:27:06 
 *
 * Modification History:
 * Date         Author          Version            Description
 *---------------------------------------------------------*
-* 2018年8月7日     chenhj          v1.0.0               修改原因
+* 2018年8月20日     chenhj          v1.0.0               修改原因
 */
 public class ThreadPoolManager {
 	private static ThreadPoolManager sThreadPoolManager = new ThreadPoolManager(4);
@@ -35,11 +38,11 @@ public class ThreadPoolManager {
 	/**线程池维护线程所允许的空闲时间,超时时间为0,线程运行完后就关闭，而不会再等待超时时间 单位:秒**/
 	private static final long TIME_KEEP_ALIVE = 0L;
 	/**线程池所使用的缓冲队列大小**/
-	private static final int SIZE_WORK_QUEUE = 100;
+	private static final int SIZE_WORK_QUEUE = 30;
 	/**任务调度周期**/
 	private static final int PERIOD_TASK_QOS = 1000;
 	/**任务缓冲队列**/
-	public final BlockingQueue<Runnable> mTaskQueue = new LinkedBlockingQueue<Runnable>(SIZE_WORK_QUEUE);
+	public static BlockingQueue<Runnable> mTaskQueue = null;
 	/**
 	 * 线程池单例创建方法
 	 * @param threadSize 线程池数量
@@ -47,6 +50,18 @@ public class ThreadPoolManager {
 	 */
 	public static ThreadPoolManager newInstance(int threadSize) {
 		sThreadPoolManager.setThreadSize(threadSize);
+		mTaskQueue = new LinkedBlockingQueue<Runnable>(SIZE_WORK_QUEUE);
+		return sThreadPoolManager;
+	}
+	/**
+	 * 线程池单例创建方法
+	 * @param threadSize 线程池数量
+	 * @param queueSize 队列长度
+	 * @return
+	 */
+	public static ThreadPoolManager newInstance(int threadSize,int queueSize) {
+		sThreadPoolManager.setThreadSize(threadSize);
+		mTaskQueue = new LinkedBlockingQueue<Runnable>(queueSize);
 		return sThreadPoolManager;
 	}
 	/**线程池单例创建方法
@@ -78,21 +93,28 @@ public class ThreadPoolManager {
 	private  ThreadPoolExecutor mThreadPool = null;
 	
 	private  ThreadPoolManager build(ThreadPoolManager builder) {
-		 namedThreadFactory = new ThreadFactoryBuilder().setNameFormat("mir-msg-montnets").build();
+		 namedThreadFactory = new CustomThreadFactory();
 		 scheduler          = new ScheduledThreadPoolExecutor(SIZE_CORE_POOL,namedThreadFactory,mHandler);
 		 mTaskHandler       = scheduler.scheduleAtFixedRate(mAccessBufferThread, 0,
-							  PERIOD_TASK_QOS, TimeUnit.MILLISECONDS);
+							  PERIOD_TASK_QOS,TimeUnit.MILLISECONDS);
 		 mThreadPool        =new ThreadPoolExecutor(SIZE_CORE_POOL, SIZE_MAX_POOL,
 							TIME_KEEP_ALIVE,TimeUnit.SECONDS,mTaskQueue,namedThreadFactory,mHandler);
 		 return this;
 	 }
+
 	/**
 	 * 线程池超出界线时将任务加入缓冲队列
 	 */
 	private final RejectedExecutionHandler mHandler = new RejectedExecutionHandler() {
 		@Override
 		public void rejectedExecution(Runnable task, ThreadPoolExecutor executor) {
-			mTaskQueue.offer(task);
+				try {
+					mTaskQueue.put(task);
+				} catch (InterruptedException e) {
+					e.printStackTrace();
+				}
+			// 核心改造点，由blockingqueue的offer改成put阻塞方法
+			//	mTaskQueue.offer(task);
 		}
 	};
 	/**
@@ -158,10 +180,26 @@ public class ThreadPoolManager {
 	}
 	public void shutdown() {
 		//清空队列的任务
+	if(mTaskQueue!=null)
 		mTaskQueue.clear();
-		//关闭缓存任务
+	//关闭缓存任务
+	if(scheduler!=null)
 		scheduler.shutdown();
-		//关闭线程池
+	//关闭线程池
+	if(mThreadPool!=null)
 		mThreadPool.shutdown();
-}
+	}
+	/**
+	* @Description: 自定义线程名
+	 */
+	private class CustomThreadFactory implements ThreadFactory {
+			private AtomicInteger count = new AtomicInteger(0);
+			@Override
+			public Thread newThread(Runnable r) {
+				Thread t = new Thread(r);
+				String threadName = "montnets_mi_analyze_" + count.addAndGet(1);
+				t.setName(threadName);
+				return t;
+			}
+	}
 }
